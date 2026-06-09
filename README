@@ -1,0 +1,45 @@
+# Чат в реальном времени на FastAPI + WebSockets
+
+Технологии:
+- Python 3.10+
+- FastAPI
+- WebSockets
+- JWT авторизация
+- PostgreSQL
+- SQLAlchemy (async)
+- Docker / Docker Compose
+- Pytest
+
+Возможности:
+- Регистрация и логин (JWT)
+- Асинхронный WebSocket чат
+- Комнаты (room_id)
+- Сохранение истории сообщений
+- Рассылка сообщений всем участникам комнаты
+- История сообщений (последние 50)
+
+Запуск через Docker:
+
+docker-compose up --build
+
+Сервер будет доступен по адресу: http://localhost:8000
+
+Запуск без Docker:
+
+pip install -r requirements.txt
+uvicorn backendmain:app --reload
+
+Переменные окружения (файл .env):
+
+DATABASE_URL=postgresql+asyncpg://admin:123@localhost:5432/chat
+SECRET_KEY=your-secret-key
+
+Пример WebSocket подключения:
+
+let ws = new WebSocket(`ws://localhost:8000/ws/1?token=${token}`);
+ws.onmessage = (e) => console.log(e.data);
+ws.send("Привет!");
+
+Автор: Роман (senQ13)
+
+Ссылка на деплой: будет добавлена после деплоя
