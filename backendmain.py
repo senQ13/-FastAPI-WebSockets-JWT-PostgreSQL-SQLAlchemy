@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import bcrypt
@@ -88,7 +89,63 @@ async def websocket_endpoint(websocket:WebSocket, room_id:int):
 
     except WebSocketDisconnect:
         active_collections[room_id].remove(websocket)
-
+@app.get("/")
+async def root():
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Чат</title>
+        <style>
+            body { font-family: monospace; max-width: 800px; margin: 20px auto; background: #1e1e1e; color: #d4d4d4; }
+            #messages { border: 1px solid #444; height: 400px; overflow-y: auto; background: #252526; }
+            .message { margin: 5px; padding: 8px; border-radius: 5px; }
+            .my { background: #2a6d4e; text-align: right; }
+            .other { background: #3e3e42; }
+            input, button { background: #3c3c3c; border: none; color: white; padding: 10px; }
+        </style>
+    </head>
+    <body>
+        <div id="auth">
+            <input id="username" placeholder="Имя"><input id="password" type="password" placeholder="Пароль">
+            <button id="reg">Регистрация</button><button id="login">Вход</button>
+        </div>
+        <div id="chat" style="display:none">
+            <div id="messages"></div>
+            <input id="message" placeholder="Сообщение"><button id="send">Отправить</button>
+        </div>
+        <script>
+            let ws = null, token = null;
+            async function apiCall(url, data) {
+                const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!res.ok) throw new Error((await res.json()).detail);
+                return res.json();
+            }
+            document.getElementById('reg').onclick = async () => {
+                try { await apiCall('/register', { username: username.value, password: password.value }); alert('ok'); }
+                catch(e) { alert(e.message); }
+            };
+            document.getElementById('login').onclick = async () => {
+                try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; connect(); }
+                catch(e) { alert(e.message); }
+            };
+            function connect() {
+                ws = new WebSocket(`ws://localhost:8000/ws/1?token=${token}`);
+                ws.onmessage = e => { const d = document.createElement('div'); d.className='message other'; d.textContent=e.data; messages.appendChild(d); };
+                ws.onopen = () => { loadHistory(); };
+            }
+            async function loadHistory() {
+                const res = await fetch(`/history/1?token=${token}`);
+                const msgs = await res.json();
+                msgs.forEach(m => { const d = document.createElement('div'); d.className='message other'; d.textContent=m.username+': '+m.text; messages.appendChild(d); });
+            }
+            document.getElementById('send').onclick = () => {
+                if(ws && message.value) { ws.send(message.value); const d = document.createElement('div'); d.className='message my'; d.textContent=message.value; messages.appendChild(d); message.value=''; }
+            };
+        </script>
+    </body>
+    </html>
+    """)
 
 
 
