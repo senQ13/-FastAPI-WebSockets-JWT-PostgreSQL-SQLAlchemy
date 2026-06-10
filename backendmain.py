@@ -44,7 +44,7 @@ class UserLogin(BaseModel):
 @app.post("/register")
 async def register(user_register: UserRegister):
    async with AsyncSessionLocal() as session:
-       res = await session.execute(select(User).where(User.username == user_register.username))
+       res = await session.execute(select(User).where(User.name == user_register.username))
        if res.scalar_one_or_none():
             raise HTTPException(status_code=400 , detail="Пользователь уже зарегистрирован")
        hashed_pssword = bcrypt.hashpw(user_register.password.encode(), bcrypt.gensalt())
@@ -56,7 +56,7 @@ async def register(user_register: UserRegister):
 @app.post("/login")
 async def login(user_register: UserLogin):
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User).where(User.username == user_register.username))
+        result = await session.execute(select(User).where(User.name == user_register.username))
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(status_code=400 , detail="Пользователь не найден")
