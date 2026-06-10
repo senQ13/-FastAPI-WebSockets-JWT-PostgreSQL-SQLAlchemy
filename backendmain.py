@@ -24,6 +24,12 @@ active_collections = {}
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    async with AsyncSessionLocal() as session:
+        for room_name in ["general" , "random", "tech"]:
+            result = await session.execute(select(Room).where(Room.name == room_name))
+            if not result.scalar_one_or_none():
+                session.add(Room(name=room_name))
+        await session.commit()
     yield
     await engine.dispose()
 
