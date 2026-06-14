@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import bcrypt
 from jose import jwt, JWTError
+from fastapi import FastAPI, Request
 from datetime import datetime, timedelta
 from sqlalchemy import select
 from db import AsyncSessionLocal, engine
@@ -121,15 +122,26 @@ async def get_history(room_id:int , token : str):
     except JWTError:
         raise HTTPException(status_code=401, detail="Ошибка токена")
     async with AsyncSessionLocal() as session:
-        stmt = (select(User.username , Message.id , Message.created_at)
-        .join(Message, User.id == Message.user_id)
-        .where(Message.room_id == room_id)
-        .order_by(Message.created_at)
-        .limit(50)
-                )
+        stmt = (select(User.username , Message.text , Message.created_at)
+                .join(User, User.id == Message.user_id)
+                .where(Message.room_id == room_id)
+                .order_by(Message.created_at)
+                .limit(50))
         res = await session.execute(stmt)
         row = res.all()
         return [{"username": r[0], "text": r[1], "created_at": r[2]} for r in row[::-1]]
+@app.post("/webhook/test")
+async def test_webhook(request: Request):
+    data = await request.json()
+    message = data.get("message" , "Уведомление от внешнего сервиса")
+    room_id = data.get("room_id" , 1)
+    if room_id in active_collections:
+        for ws in active_collections[room_id]:
+            await ws.send_text(f"Вебхук: {message}")
+    return {"message" : "ок"}
+
+
+
 
 
 
@@ -183,16 +195,7 @@ async def root():
             let mediaRecorder = null;
             let audioChunks = [];
             let isRecording = false;
-
-            // Функция получения комнаты из URL
-            function getRoomFromURL() {
-                const params = new URLSearchParams(window.location.search);
-                const room = params.get('room');
-                if (room && ['1','2','3'].includes(room)) return room;
-                return '1';
-            }
-
-            let currentRoomId = getRoomFromURL();
+            let currentRoomId = "1";
 
             async function apiCall(url, data) {
                 const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -205,14 +208,10 @@ async def root():
                 catch(e) { alert(e.message); }
             };
             document.getElementById('login').onclick = async () => {
-                try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; 
-                    document.getElementById('roomSelect').value = currentRoomId;
-                    connect(); 
-                }
+                try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; connect(); }
                 catch(e) { alert(e.message); }
             };
             document.getElementById('joinRoom').onclick = () => {
-                currentRoomId = document.getElementById('roomSelect').value;
                 if (ws) ws.close();
                 connect();
             };
@@ -224,6 +223,7 @@ async def root():
                 messages.innerHTML = '';
             };
             function connect() {
+                currentRoomId = document.getElementById('roomSelect').value;
                 ws = new WebSocket(`ws://localhost:8000/ws/${currentRoomId}?token=${token}`);
                 ws.onmessage = e => { 
                     try {
@@ -291,7 +291,7 @@ async def root():
 
             async function uploadAudio(blob) {
                 const formData = new FormData();
-                formData.append('upload', blob, 'voice.webm');
+                formData.append('file', blob, 'voice.webm');
                 const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
                 if (!res.ok) throw new Error('Ошибка загрузки');
                 const data = await res.json();
@@ -336,3 +336,6 @@ async def root():
     </body>
     </html>
     """)
+
+
+
