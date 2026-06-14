@@ -279,7 +279,7 @@ async def root():
 
             async function uploadAudio(blob) {
                 const formData = new FormData();
-                formData.append('file', blob, 'voice.webm');
+                formData.append('upload', blob, 'voice.webm');   // ← ИСПРАВЛЕНО: 'upload', а не 'file'
                 const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
                 if (!res.ok) throw new Error('Ошибка загрузки');
                 const data = await res.json();
@@ -324,6 +324,3 @@ async def root():
     </body>
     </html>
     """)
-
-
-
