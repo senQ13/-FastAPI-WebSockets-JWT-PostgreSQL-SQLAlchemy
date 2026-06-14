@@ -183,7 +183,16 @@ async def root():
             let mediaRecorder = null;
             let audioChunks = [];
             let isRecording = false;
-            let currentRoomId = "1";
+
+            // Функция получения комнаты из URL
+            function getRoomFromURL() {
+                const params = new URLSearchParams(window.location.search);
+                const room = params.get('room');
+                if (room && ['1','2','3'].includes(room)) return room;
+                return '1';
+            }
+
+            let currentRoomId = getRoomFromURL();
 
             async function apiCall(url, data) {
                 const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -196,10 +205,14 @@ async def root():
                 catch(e) { alert(e.message); }
             };
             document.getElementById('login').onclick = async () => {
-                try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; connect(); }
+                try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; 
+                    document.getElementById('roomSelect').value = currentRoomId;
+                    connect(); 
+                }
                 catch(e) { alert(e.message); }
             };
             document.getElementById('joinRoom').onclick = () => {
+                currentRoomId = document.getElementById('roomSelect').value;
                 if (ws) ws.close();
                 connect();
             };
@@ -211,7 +224,6 @@ async def root():
                 messages.innerHTML = '';
             };
             function connect() {
-                currentRoomId = document.getElementById('roomSelect').value;
                 ws = new WebSocket(`ws://localhost:8000/ws/${currentRoomId}?token=${token}`);
                 ws.onmessage = e => { 
                     try {
@@ -279,7 +291,7 @@ async def root():
 
             async function uploadAudio(blob) {
                 const formData = new FormData();
-                formData.append('upload', blob, 'voice.webm');   // ← ИСПРАВЛЕНО: 'upload', а не 'file'
+                formData.append('upload', blob, 'voice.webm');
                 const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
                 if (!res.ok) throw new Error('Ошибка загрузки');
                 const data = await res.json();
