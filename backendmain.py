@@ -142,14 +142,14 @@ async def root():
         <title>Чат с голосом</title>
         <style>
             body { font-family: monospace; max-width: 800px; margin: 20px auto; background: #1e1e1e; color: #d4d4d4; }
-            #messages { border: 1px solid #444; height: 400px; overflow-y: auto; background: #252526; }
+            #messages { border: 1px solid #444; height: 400px; overflow-y: auto; background: #252526; margin-top: 10px; }
             .message { margin: 5px; padding: 8px; border-radius: 5px; }
             .my { background: #2a6d4e; text-align: right; }
             .other { background: #3e3e42; }
-            input, button { background: #3c3c3c; border: none; color: white; padding: 10px; margin: 5px; }
+            input, button, select { background: #3c3c3c; border: none; color: white; padding: 10px; margin: 5px; }
             button:hover { background: #555; cursor: pointer; }
             audio { max-width: 200px; display: block; }
-            .voice-controls { display: inline-block; margin-left: 10px; }
+            .room-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         </style>
     </head>
     <body>
@@ -160,6 +160,16 @@ async def root():
             <button id="login">Вход</button>
         </div>
         <div id="chat" style="display:none">
+            <div class="room-bar">
+                <label>Комната:</label>
+                <select id="roomSelect">
+                    <option value="1">general</option>
+                    <option value="2">random</option>
+                    <option value="3">tech</option>
+                </select>
+                <button id="joinRoom">Перейти</button>
+                <button id="logoutBtn">Выйти</button>
+            </div>
             <div id="messages"></div>
             <div style="display: flex; gap: 10px; margin-top: 10px;">
                 <input id="message" placeholder="Текст" style="flex: 1;">
@@ -173,6 +183,7 @@ async def root():
             let mediaRecorder = null;
             let audioChunks = [];
             let isRecording = false;
+            let currentRoomId = "1";
 
             async function apiCall(url, data) {
                 const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -188,8 +199,20 @@ async def root():
                 try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; connect(); }
                 catch(e) { alert(e.message); }
             };
+            document.getElementById('joinRoom').onclick = () => {
+                if (ws) ws.close();
+                connect();
+            };
+            document.getElementById('logoutBtn').onclick = () => {
+                if (ws) ws.close();
+                token = null;
+                auth.style.display='block';
+                chat.style.display='none';
+                messages.innerHTML = '';
+            };
             function connect() {
-                ws = new WebSocket(`ws://localhost:8000/ws/1?token=${token}`);
+                currentRoomId = document.getElementById('roomSelect').value;
+                ws = new WebSocket(`ws://localhost:8000/ws/${currentRoomId}?token=${token}`);
                 ws.onmessage = e => { 
                     try {
                         const data = JSON.parse(e.data);
@@ -216,19 +239,19 @@ async def root():
                     messages.scrollTop = messages.scrollHeight;
                 };
                 ws.onopen = () => {
-                    console.log('WebSocket connected');
+                    console.log('WebSocket connected to room', currentRoomId);
                     loadHistory();
                 };
             }
 
             async function loadHistory() {
                 try {
-                    const res = await fetch(`/history/1?token=${token}`);
+                    const res = await fetch(`/history/${currentRoomId}?token=${token}`);
                     const msgs = await res.json();
+                    messages.innerHTML = '';
                     for (let msg of msgs) {
                         const d = document.createElement('div');
                         d.className = 'message other';
-
                         if (msg.text && msg.text.startsWith('{"type":"voice"')) {
                             try {
                                 const voiceData = JSON.parse(msg.text);
@@ -246,7 +269,6 @@ async def root():
                         } else {
                             d.textContent = `${msg.username}: ${msg.text}`;
                         }
-
                         messages.appendChild(d);
                     }
                     messages.scrollTop = messages.scrollHeight;
@@ -302,7 +324,6 @@ async def root():
     </body>
     </html>
     """)
-
 
 
 
