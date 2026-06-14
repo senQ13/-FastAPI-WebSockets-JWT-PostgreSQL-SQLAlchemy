@@ -7,4 +7,5 @@ bcrypt==4.1.2
 python-jose[cryptography]==3.3.0
 pytest==8.3.2
 greenlet==3.2.4
-psycopg2-binary==2.9.12python-multipart
+psycopg2-binary==2.9.12
+python-multipart
