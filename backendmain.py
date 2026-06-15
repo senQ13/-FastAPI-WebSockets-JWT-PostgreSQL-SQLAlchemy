@@ -132,29 +132,38 @@ async def get_history(room_id:int , token : str):
         res = await session.execute(stmt)
         row = res.all()
         return [{"username": r[0], "text": r[1], "created_at": r[2]} for r in row[::-1]]
-@app.post("/webhook/test")
-async def test_webhook(request: Request):
-    data = await request.json()
-    message = data.get("message" , "Уведомление от внешнего сервиса")
-    room_id = data.get("room_id" , 1)
-    if room_id in active_collections:
-        for ws in active_collections[room_id]:
-            await ws.send_text(f"Вебхук: {message}")
-    return {"message" : "ок"}
+@app.post("/set/telegramwebhook")
+async def set_webhook():
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token:
+        raise HTTPException(status_code=500 , detail="Error env value TELEGRAM_TOKEN")
+    webhook_url = "https://fastapi-websockets-jwt-postgresql-ydp5.onrender.com/webhook/telegram"
+    api_url = f"https://api.telegram.org/bot{token}/setWebhook"
+    async with httpx.AsyncClient() as client:
+        response = await client.post(api_url , json={"url" : webhook_url})
+        result = response.json()
+    if result.get("ok"):
+        return {"message": "Вебхук установлен", "url": webhook_url}
+    else:
+        raise HTTPException(500 , result.get("description" , "Ошибка"))
 @app.post("/webhook/telegram")
 async def webhook_telegram(request: Request):
-    data = await request.json()
-    message = data.get("message" , {})
-    message_text = message.get("text")
-    if 1 in active_collections:
-        for ws in active_collections[1]:
-            await ws.send_text(f"Вебхук от тг : {message_text}")
+    try:
+        data = await request.json()
+        if "message" not in data:
+            return {"ok" : True}
+        if "text" not in data["message"]:
+            return {"ok" : True}
+        message = data["message"]["text"]
+        nameofuser = data["message"]["from"].get("first_name" , ("first_name", "Аноним"))
+        if 1 in active_collections:
+            for websocket in active_collections[1]:
+                await websocket.send_text(f"Вебхук : {message} от {nameofuser}")
+            return{"ok" : True}
 
-
-
-
-
-
+    except Exception as e:
+        print(f"ошибка {e}")
+        return{"ok" : False}
 
 
 @app.get("/")
@@ -163,108 +172,392 @@ async def root():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Чат с голосом</title>
+        <title>Чат | Graphite</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body { font-family: monospace; max-width: 800px; margin: 20px auto; background: #1e1e1e; color: #d4d4d4; }
-            #messages { border: 1px solid #444; height: 400px; overflow-y: auto; background: #252526; margin-top: 10px; }
-            .message { margin: 5px; padding: 8px; border-radius: 5px; }
-            .my { background: #2a6d4e; text-align: right; }
-            .other { background: #3e3e42; }
-            input, button, select { background: #3c3c3c; border: none; color: white; padding: 10px; margin: 5px; }
-            button:hover { background: #555; cursor: pointer; }
-            audio { max-width: 200px; display: block; }
-            .room-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+                background: #121212;
+                height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+
+            /* Контейнер чата */
+            .chat-container {
+                width: 100%;
+                max-width: 1000px;
+                height: 90vh;
+                background: #1e1e1e;
+                border-radius: 20px;
+                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+
+            /* Шапка */
+            .chat-header {
+                background: #2a2a2a;
+                padding: 16px 20px;
+                border-bottom: 1px solid #3a3a3a;
+                display: flex;
+            justify-content: space-between;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .chat-header h1 {
+                color: #e0e0e0;
+                font-size: 1.4rem;
+                font-weight: 600;
+                letter-spacing: -0.3px;
+            }
+
+            .chat-header .room-controls {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                background: #1e1e1e;
+                padding: 5px 12px;
+                border-radius: 12px;
+            }
+
+            .chat-header select, .chat-header button {
+                background: #3a3a3a;
+                border: none;
+                color: #e0e0e0;
+                padding: 8px 14px;
+                border-radius: 10px;
+                font-size: 0.85rem;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .chat-header select:hover, .chat-header button:hover {
+                background: #4a4a4a;
+            }
+
+            .chat-header button:active {
+                transform: scale(0.98);
+            }
+
+            /* Область сообщений */
+            .messages-area {
+                flex: 1;
+                overflow-y: auto;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                background: #1a1a1a;
+            }
+
+            /* Сообщения */
+            .message {
+                max-width: 70%;
+                padding: 10px 14px;
+                border-radius: 18px;
+                font-size: 0.9rem;
+                line-height: 1.4;
+                word-wrap: break-word;
+                animation: fadeIn 0.2s ease;
+            }
+
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(5px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            .message.my {
+                background: #2b5d8c;
+                color: white;
+                align-self: flex-end;
+                border-bottom-right-radius: 4px;
+            }
+
+            .message.other {
+                background: #2a2a2a;
+                color: #e0e0e0;
+                align-self: flex-start;
+                border-bottom-left-radius: 4px;
+                border: 1px solid #3a3a3a;
+            }
+
+            .message .sender {
+                font-size: 0.7rem;
+                font-weight: 600;
+                margin-bottom: 4px;
+                color: #888;
+            }
+
+            .message.my .sender {
+                color: #aac9e4;
+            }
+
+            /* Аудио блок */
+            .message audio {
+                margin-top: 6px;
+                max-width: 200px;
+                border-radius: 20px;
+            }
+
+            /* Панель ввода */
+            .input-panel {
+                background: #2a2a2a;
+                padding: 16px 20px;
+                border-top: 1px solid #3a3a3a;
+                display: flex;
+                gap: 12px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+
+            .input-panel input {
+                flex: 1;
+                background: #1e1e1e;
+                border: 1px solid #3a3a3a;
+                color: #e0e0e0;
+                padding: 12px 16px;
+                border-radius: 25px;
+                font-size: 0.9rem;
+                outline: none;
+                transition: border 0.2s;
+            }
+
+            .input-panel input:focus {
+                border-color: #2b5d8c;
+            }
+
+            .input-panel button {
+                background: #3a3a3a;
+                border: none;
+                color: #e0e0e0;
+                padding: 12px 20px;
+                border-radius: 25px;
+                font-size: 0.9rem;
+                cursor: pointer;
+                transition: all 0.2s;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .input-panel button:hover {
+                background: #4a4a4a;
+            }
+
+            .input-panel button.record {
+                background: #8c2b2b;
+            }
+
+            .input-panel button.record:hover {
+                background: #a33;
+            }
+
+            .input-panel button.stop {
+                background: #555;
+            }
+
+            /* Форма авторизации */
+            .auth-container {
+                background: #1e1e1e;
+                padding: 30px;
+                border-radius: 20px;
+                width: 320px;
+                text-align: center;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            }
+
+            .auth-container h2 {
+                color: #e0e0e0;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }
+
+            .auth-container input {
+                width: 100%;
+                background: #2a2a2a;
+                border: 1px solid #3a3a3a;
+                color: #e0e0e0;
+                padding: 12px;
+                border-radius: 12px;
+                margin-bottom: 12px;
+                font-size: 0.9rem;
+                outline: none;
+            }
+
+            .auth-container input:focus {
+                border-color: #2b5d8c;
+            }
+
+            .auth-container button {
+                width: 100%;
+                background: #2b5d8c;
+                border: none;
+                color: white;
+                padding: 12px;
+                border-radius: 12px;
+                font-size: 0.9rem;
+                cursor: pointer;
+                margin-top: 8px;
+                transition: background 0.2s;
+            }
+
+            .auth-container button:hover {
+                background: #1e4a70;
+            }
+
+            .auth-container .error {
+                color: #d66;
+                margin-top: 12px;
+                font-size: 0.8rem;
+            }
+
+            /* Скроллбар */
+            .messages-area::-webkit-scrollbar {
+                width: 6px;
+            }
+
+            .messages-area::-webkit-scrollbar-track {
+                background: #1e1e1e;
+            }
+
+            .messages-area::-webkit-scrollbar-thumb {
+                background: #3a3a3a;
+                border-radius: 4px;
+            }
+
+            .hidden {
+                display: none;
+            }
         </style>
     </head>
     <body>
-        <div id="auth">
-            <input id="username" placeholder="Имя">
-            <input id="password" type="password" placeholder="Пароль">
-            <button id="reg">Регистрация</button>
-            <button id="login">Вход</button>
+        <div id="authContainer" class="auth-container">
+            <h2>✧ Вход в чат ✧</h2>
+            <input type="text" id="username" placeholder="Имя пользователя">
+            <input type="password" id="password" placeholder="Пароль">
+            <button id="regBtn">📝 Зарегистрироваться</button>
+            <button id="loginBtn">🔑 Войти</button>
+            <div id="authError" class="error"></div>
         </div>
-        <div id="chat" style="display:none">
-            <div class="room-bar">
-                <label>Комната:</label>
-                <select id="roomSelect">
-                    <option value="1">general</option>
-                    <option value="2">random</option>
-                    <option value="3">tech</option>
-                </select>
-                <button id="joinRoom">Перейти</button>
-                <button id="logoutBtn">Выйти</button>
+
+        <div id="chatContainer" class="chat-container hidden">
+            <div class="chat-header">
+                <h1>💬 Graphite Chat</h1>
+                <div class="room-controls">
+                    <select id="roomSelect">
+                        <option value="1">🏠 general</option>
+                        <option value="2">🎲 random</option>
+                        <option value="3">💻 tech</option>
+                    </select>
+                    <button id="joinRoomBtn">🔄 Перейти</button>
+                    <button id="logoutBtn">🚪 Выйти</button>
+                </div>
             </div>
-            <div id="messages"></div>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <input id="message" placeholder="Текст" style="flex: 1;">
-                <button id="send">Отправить</button>
-                <button id="recordBtn" style="background: #d32f2f;">🎤 Запись</button>
-                <button id="stopBtn" style="background: #555; display: none;">⏹ Стоп</button>
+            <div class="messages-area" id="messagesArea">
+                <div style="text-align: center; color: #555; padding: 40px;">💬 Сообщения будут здесь</div>
+            </div>
+            <div class="input-panel">
+                <input type="text" id="messageInput" placeholder="Сообщение..." autocomplete="off">
+                <button id="sendBtn">📤 Отправить</button>
+                <button id="recordBtn" class="record">🎤 Запись</button>
+                <button id="stopBtn" class="stop" style="display: none;">⏹ Стоп</button>
             </div>
         </div>
+
         <script>
-            let ws = null, token = null;
+            let ws = null;
+            let token = null;
             let mediaRecorder = null;
             let audioChunks = [];
             let isRecording = false;
             let currentRoomId = "1";
 
+            const authContainer = document.getElementById('authContainer');
+            const chatContainer = document.getElementById('chatContainer');
+            const messagesArea = document.getElementById('messagesArea');
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            const authError = document.getElementById('authError');
+            const roomSelect = document.getElementById('roomSelect');
+            const messageInput = document.getElementById('messageInput');
+
             async function apiCall(url, data) {
-                const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-                if (!res.ok) throw new Error((await res.json()).detail);
-                return res.json();
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.detail || 'Ошибка');
+                return json;
             }
 
-            document.getElementById('reg').onclick = async () => {
-                try { await apiCall('/register', { username: username.value, password: password.value }); alert('ok'); }
-                catch(e) { alert(e.message); }
+            document.getElementById('regBtn').onclick = async () => {
+                try {
+                    await apiCall('/register', { username: usernameInput.value, password: passwordInput.value });
+                    authError.innerText = '✅ Регистрация успешна! Теперь войдите.';
+                    authError.style.color = '#4caf50';
+                } catch(e) {
+                    authError.innerText = '❌ ' + e.message;
+                    authError.style.color = '#d66';
+                }
             };
-            document.getElementById('login').onclick = async () => {
-                try { const data = await apiCall('/login', { username: username.value, password: password.value }); token = data.token; auth.style.display='none'; chat.style.display='block'; connect(); }
-                catch(e) { alert(e.message); }
+
+            document.getElementById('loginBtn').onclick = async () => {
+                try {
+                    const data = await apiCall('/login', { username: usernameInput.value, password: passwordInput.value });
+                    token = data.token;
+                    authContainer.classList.add('hidden');
+                    chatContainer.classList.remove('hidden');
+                    connectWebSocket();
+                } catch(e) {
+                    authError.innerText = '❌ ' + e.message;
+                    authError.style.color = '#d66';
+                }
             };
-            document.getElementById('joinRoom').onclick = () => {
+
+            document.getElementById('joinRoomBtn').onclick = () => {
                 if (ws) ws.close();
-                connect();
+                connectWebSocket();
             };
+
             document.getElementById('logoutBtn').onclick = () => {
                 if (ws) ws.close();
                 token = null;
-                auth.style.display='block';
-                chat.style.display='none';
-                messages.innerHTML = '';
+                authContainer.classList.remove('hidden');
+                chatContainer.classList.add('hidden');
+                messagesArea.innerHTML = '<div style="text-align: center; color: #555; padding: 40px;">💬 Сообщения будут здесь</div>';
             };
-            function connect() {
-                currentRoomId = document.getElementById('roomSelect').value;
-                ws = new WebSocket(`ws://localhost:8000/ws/${currentRoomId}?token=${token}`);
-                ws.onmessage = e => { 
-                    try {
-                        const data = JSON.parse(e.data);
-                        if (data.type === 'voice') {
-                            const d = document.createElement('div'); 
-                            d.className = 'message other'; 
-                            const audio = document.createElement('audio');
-                            audio.controls = true;
-                            audio.src = data.url;
-                            d.appendChild(audio);
-                            messages.appendChild(d); 
-                        } else {
-                            const d = document.createElement('div'); 
-                            d.className = 'message other'; 
-                            d.textContent = data.text || e.data; 
-                            messages.appendChild(d); 
-                        }
-                    } catch {
-                        const d = document.createElement('div'); 
-                        d.className = 'message other'; 
-                        d.textContent = e.data; 
-                        messages.appendChild(d); 
-                    }
-                    messages.scrollTop = messages.scrollHeight;
-                };
+
+            function connectWebSocket() {
+                currentRoomId = roomSelect.value;
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/${currentRoomId}?token=${token}`;
+                ws = new WebSocket(wsUrl);
+
                 ws.onopen = () => {
                     console.log('WebSocket connected to room', currentRoomId);
                     loadHistory();
+                };
+
+                ws.onmessage = (e) => {
+                    addMessageToChat(e.data, false);
+                };
+
+                ws.onerror = (err) => {
+                    console.error('WebSocket error:', err);
                 };
             }
 
@@ -272,60 +565,75 @@ async def root():
                 try {
                     const res = await fetch(`/history/${currentRoomId}?token=${token}`);
                     const msgs = await res.json();
-                    messages.innerHTML = '';
+                    messagesArea.innerHTML = '';
                     for (let msg of msgs) {
-                        const d = document.createElement('div');
-                        d.className = 'message other';
-                        if (msg.text && msg.text.startsWith('{"type":"voice"')) {
-                            try {
-                                const voiceData = JSON.parse(msg.text);
-                                if (voiceData.type === 'voice') {
-                                    const audio = document.createElement('audio');
-                                    audio.controls = true;
-                                    audio.src = voiceData.url;
-                                    d.appendChild(audio);
-                                } else {
-                                    d.textContent = `${msg.username}: ${msg.text}`;
-                                }
-                            } catch(e) {
-                                d.textContent = `${msg.username}: ${msg.text}`;
-                            }
-                        } else {
-                            d.textContent = `${msg.username}: ${msg.text}`;
-                        }
-                        messages.appendChild(d);
+                        addMessageToChat(msg.text, false, msg.username);
                     }
-                    messages.scrollTop = messages.scrollHeight;
-                } catch(e) { 
-                    console.error('Ошибка загрузки истории:', e); 
+                } catch(e) {
+                    console.error('History error:', e);
                 }
+            }
+
+            function addMessageToChat(text, isMy = false, sender = null) {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = `message ${isMy ? 'my' : 'other'}`;
+
+                if (!isMy && sender) {
+                    const senderSpan = document.createElement('div');
+                    senderSpan.className = 'sender';
+                    senderSpan.innerText = sender;
+                    msgDiv.appendChild(senderSpan);
+                }
+
+                // Проверка на голосовое сообщение
+                try {
+                    const parsed = JSON.parse(text);
+                    if (parsed.type === 'voice' && parsed.url) {
+                        const audio = document.createElement('audio');
+                        audio.controls = true;
+                        audio.src = parsed.url;
+                        msgDiv.appendChild(audio);
+                    } else {
+                        msgDiv.appendChild(document.createTextNode(parsed.text || text));
+                    }
+                } catch {
+                    msgDiv.appendChild(document.createTextNode(text));
+                }
+
+                messagesArea.appendChild(msgDiv);
+                msgDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
             }
 
             async function uploadAudio(blob) {
                 const formData = new FormData();
                 formData.append('file', blob, 'voice.webm');
                 const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
-                if (!res.ok) throw new Error('Ошибка загрузки');
+                if (!res.ok) throw new Error('Upload failed');
                 const data = await res.json();
                 ws.send(JSON.stringify({ type: 'voice', url: data.url }));
+                addMessageToChat('🎤 Голосовое сообщение', true);
             }
 
-            document.getElementById('recordBtn').onclick = async () => {
+            const recordBtn = document.getElementById('recordBtn');
+            const stopBtn = document.getElementById('stopBtn');
+
+            recordBtn.onclick = async () => {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
-                mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
                 mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    uploadAudio(audioBlob);
-                    stream.getTracks().forEach(track => track.stop());
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    uploadAudio(blob);
+                    stream.getTracks().forEach(t => t.stop());
                 };
                 mediaRecorder.start();
                 isRecording = true;
                 recordBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
             };
-            document.getElementById('stopBtn').onclick = () => {
+
+            stopBtn.onclick = () => {
                 if (mediaRecorder && isRecording) {
                     mediaRecorder.stop();
                     isRecording = false;
@@ -333,21 +641,22 @@ async def root():
                     stopBtn.style.display = 'none';
                 }
             };
-            document.getElementById('send').onclick = () => {
-                if(ws && message.value) { 
-                    ws.send(JSON.stringify({ type: 'text', text: message.value })); 
-                    const d = document.createElement('div'); 
-                    d.className = 'message my'; 
-                    d.textContent = message.value; 
-                    messages.appendChild(d); 
-                    message.value = ''; 
-                    messages.scrollTop = messages.scrollHeight;
+
+            document.getElementById('sendBtn').onclick = () => {
+                const text = messageInput.value.trim();
+                if (text && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'text', text: text }));
+                    addMessageToChat(text, true);
+                    messageInput.value = '';
                 }
             };
+
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') document.getElementById('sendBtn').click();
+            });
         </script>
     </body>
     </html>
     """)
-
 
 
