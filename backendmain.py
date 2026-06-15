@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import bcrypt
+import httpx
 from jose import jwt, JWTError
 from fastapi import FastAPI, Request
 from datetime import datetime, timedelta
@@ -17,7 +18,8 @@ from fastapi import UploadFile , File
 import uuid
 import shutil
 os.makedirs("uploads", exist_ok=True)
-
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 load_dotenv()
 secret_key = os.getenv("SECRET_KEY")
 if not secret_key:
