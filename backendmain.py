@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import bcrypt
@@ -132,6 +131,16 @@ async def get_history(room_id:int , token : str):
         res = await session.execute(stmt)
         row = res.all()
         return [{"username": r[0], "text": r[1], "created_at": r[2]} for r in row[::-1]]
+@app.get("/webhook_info")
+async def webhook_info():
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return {"error": "Токен не задан"}
+
+    api_url = f"https://api.telegram.org/bot{token}/getWebhookInfo"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(api_url)
+        return response.json()
 @app.post("/set/telegramwebhook")
 async def set_webhook():
     token = os.getenv("TELEGRAM_TOKEN")
@@ -155,7 +164,7 @@ async def webhook_telegram(request: Request):
         if "text" not in data["message"]:
             return {"ok" : True}
         message = data["message"]["text"]
-        nameofuser = data["message"]["from"].get("first_name" , ("first_name", "Аноним"))
+        nameofuser = data["message"]["from"].get("first_name", "Аноним")
         if 1 in active_collections:
             for websocket in active_collections[1]:
                 await websocket.send_text(f"Вебхук : {message} от {nameofuser}")
