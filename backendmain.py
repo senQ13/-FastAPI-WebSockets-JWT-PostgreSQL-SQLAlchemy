@@ -141,7 +141,8 @@ async def webhook_info():
     async with httpx.AsyncClient() as client:
         response = await client.get(api_url)
         return response.json()
-@app.post("/set/telegramwebhook")
+@app.get("/set_telegram_webhook")
+@app.post("/set_telegram_webhook")
 async def set_webhook():
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
