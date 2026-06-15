@@ -139,6 +139,16 @@ async def test_webhook(request: Request):
         for ws in active_collections[room_id]:
             await ws.send_text(f"Вебхук: {message}")
     return {"message" : "ок"}
+@app.post("/webhook/telegram")
+async def webhook_telegram(request: Request):
+    data = await request.json()
+    message = data.get("message" , {})
+    message_text = message.get("text")
+    if 1 in active_collections:
+        for ws in active_collections[1]:
+            await ws.send_text(f"Вебхук от тг : {message_text}")
+
+
 
 
 
