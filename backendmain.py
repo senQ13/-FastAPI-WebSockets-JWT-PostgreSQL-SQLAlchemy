@@ -616,7 +616,7 @@ async def root():
 
             async function uploadAudio(blob) {
                 const formData = new FormData();
-                formData.append('file', blob, 'voice.webm');
+                formData.append('upload', blob, 'voice.webm');
                 const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
                 if (!res.ok) throw new Error('Upload failed');
                 const data = await res.json();
