@@ -246,8 +246,6 @@ async def get_ai(request: Request):
     except Exception as e:
         print(f"AI ошибка: {e}")
         raise HTTPException(500, f"Ошибка AI: {str(e)}")
-
-
 @app.get("/")
 async def root():
     return HTMLResponse("""
@@ -560,7 +558,7 @@ function addMessageToChat(text, isMy = false, sender = null, isAI = false) {
         msgDiv.className = `message ${isMy ? 'my' : 'other'}`;
     }
 
-    if (!isMy && sender) {
+    if (!isMy && sender && !isAI) {
         const senderSpan = document.createElement('div');
         senderSpan.className = 'sender';
         senderSpan.textContent = sender;
@@ -603,13 +601,14 @@ function connectWebSocket() {
         loadHistory();
     };
 
+    // ========== НОВЫЙ ОБРАБОТЧИК ==========
     ws.onmessage = (e) => {
         const data = e.data;
+        console.log('📩 WebSocket получил:', data);
 
-        // Проверяем, что это AI сообщение
-        if (data.startsWith('🤖 AI:') || data.startsWith('AI печатает...')) {
-            // AI сообщение
-            const isAI = data.startsWith('🤖 AI:');
+        // Если сообщение содержит "AI" или "🤖", считаем его AI-сообщением
+        if (data.includes('AI') || data.includes('🤖')) {
+            // Это AI (статус или ответ)
             addMessageToChat(data, false, null, true);
         } else {
             // Обычное сообщение
@@ -629,7 +628,7 @@ async function loadHistory() {
         messagesArea.innerHTML = '';
         for (let msg of msgs) {
             const text = msg.text;
-            if (text && text.startsWith('🤖 AI:')) {
+            if (text && (text.includes('AI') || text.includes('🤖'))) {
                 addMessageToChat(text, false, null, true);
             } else {
                 addMessageToChat(text, false, msg.username);
