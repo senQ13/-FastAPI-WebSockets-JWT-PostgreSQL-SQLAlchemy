@@ -246,6 +246,8 @@ async def get_ai(request: Request):
     except Exception as e:
         print(f"AI ошибка: {e}")
         raise HTTPException(500, f"Ошибка AI: {str(e)}")
+
+
 @app.get("/")
 async def root():
     return HTMLResponse("""
@@ -256,7 +258,6 @@ async def root():
     <title>Чат | Telegram</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        /* Общий сброс */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -267,8 +268,6 @@ async def root():
             align-items: center;
             margin: 0;
         }
-
-        /* Контейнер как окно Telegram */
         .app {
             width: 100%;
             max-width: 900px;
@@ -280,8 +279,6 @@ async def root():
             flex-direction: column;
             box-shadow: 0 20px 60px rgba(0,0,0,0.8);
         }
-
-        /* Шапка (как у Telegram) */
         .header {
             background: #1f2c33;
             padding: 16px 20px;
@@ -296,7 +293,6 @@ async def root():
             color: #e1e9ee;
             font-size: 1.3rem;
             font-weight: 600;
-            letter-spacing: 0px;
         }
         .header-controls {
             display: flex;
@@ -321,8 +317,6 @@ async def root():
         .header-controls button:hover {
             background: #3e4f59;
         }
-
-        /* Область сообщений — как чат Telegram */
         .messages-area {
             flex: 1;
             overflow-y: auto;
@@ -339,8 +333,6 @@ async def root():
             background: #3e4f59;
             border-radius: 10px;
         }
-
-        /* Сообщение */
         .message {
             max-width: 75%;
             padding: 8px 14px;
@@ -366,6 +358,13 @@ async def root():
             align-self: flex-start;
             border-bottom-left-radius: 4px;
         }
+        .message.ai {
+            background: #1a3a4a;
+            color: #8cd4e8;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            border-left: 3px solid #2b5278;
+        }
         .message .sender {
             font-size: 0.7rem;
             font-weight: 600;
@@ -375,15 +374,14 @@ async def root():
         .message.my .sender {
             color: #9ab8d9;
         }
-
-        /* Аудио (голосовые) */
+        .message.ai .sender {
+            color: #5aa9c9;
+        }
         .message audio {
             max-width: 200px;
             border-radius: 20px;
             margin-top: 4px;
         }
-
-        /* Панель ввода — как в Telegram */
         .input-panel {
             background: #1f2c33;
             padding: 12px 16px;
@@ -428,8 +426,6 @@ async def root():
         .input-panel .record:hover {
             background: #5f4a4a;
         }
-
-        /* Кнопка AI — голубая, заметная */
         .input-panel .ai-btn {
             background: #2b5278;
             font-weight: 500;
@@ -437,8 +433,6 @@ async def root():
         .input-panel .ai-btn:hover {
             background: #3b6a90;
         }
-
-        /* Форма авторизации */
         .auth-container {
             background: #1f2c33;
             padding: 40px 30px;
@@ -486,8 +480,6 @@ async def root():
         .hidden {
             display: none !important;
         }
-
-        /* Адаптив */
         @media (max-width: 600px) {
             .app { height: 100vh; border-radius: 0; }
             .header h1 { font-size: 1rem; }
@@ -498,7 +490,7 @@ async def root():
 <body>
 
 <div id="authContainer" class="auth-container">
-    <h2> Вход в чат</h2>
+    <h2>✧ Вход в чат</h2>
     <input type="text" id="username" placeholder="Имя пользователя">
     <input type="password" id="password" placeholder="Пароль">
     <button id="regBtn">📝 Зарегистрироваться</button>
@@ -507,9 +499,8 @@ async def root():
 </div>
 
 <div id="chatContainer" class="app hidden">
-    <!-- ШАПКА -->
     <div class="header">
-        <h1>Chat</h1>
+        <h1>💬 Chat</h1>
         <div class="header-controls">
             <select id="roomSelect">
                 <option value="1">🏠 general</option>
@@ -520,13 +511,9 @@ async def root():
             <button id="logoutBtn">🚪 Выйти</button>
         </div>
     </div>
-
-    <!-- ОБЛАСТЬ СООБЩЕНИЙ -->
     <div class="messages-area" id="messagesArea">
         <div style="text-align:center; color:#4a5f6b; padding:40px;">💬 Сообщения будут здесь</div>
     </div>
-
-    <!-- ПАНЕЛЬ ВВОДА -->
     <div class="input-panel">
         <input type="text" id="messageInput" placeholder="Сообщение..." autocomplete="off">
         <button id="sendBtn">📤</button>
@@ -537,10 +524,6 @@ async def root():
 </div>
 
 <script>
-// ====================================================
-// ВСЯ ЛОГИКА (та же, что работала, но с новыми ID)
-// ====================================================
-
 let ws = null;
 let token = null;
 let mediaRecorder = null;
@@ -568,10 +551,14 @@ async function apiCall(url, data) {
     return json;
 }
 
-// Функция добавления сообщения в чат
-function addMessageToChat(text, isMy = false, sender = null) {
+function addMessageToChat(text, isMy = false, sender = null, isAI = false) {
     const msgDiv = document.createElement('div');
-    msgDiv.className = `message ${isMy ? 'my' : 'other'}`;
+
+    if (isAI) {
+        msgDiv.className = 'message ai';
+    } else {
+        msgDiv.className = `message ${isMy ? 'my' : 'other'}`;
+    }
 
     if (!isMy && sender) {
         const senderSpan = document.createElement('div');
@@ -580,7 +567,13 @@ function addMessageToChat(text, isMy = false, sender = null) {
         msgDiv.appendChild(senderSpan);
     }
 
-    // Проверка на голосовое
+    if (isAI) {
+        const senderSpan = document.createElement('div');
+        senderSpan.className = 'sender';
+        senderSpan.textContent = '🤖 AI';
+        msgDiv.appendChild(senderSpan);
+    }
+
     try {
         const parsed = JSON.parse(text);
         if (parsed.type === 'voice' && parsed.url) {
@@ -599,7 +592,6 @@ function addMessageToChat(text, isMy = false, sender = null) {
     messagesArea.scrollTop = messagesArea.scrollHeight;
 }
 
-// WebSocket
 function connectWebSocket() {
     currentRoomId = roomSelect.value;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -612,7 +604,17 @@ function connectWebSocket() {
     };
 
     ws.onmessage = (e) => {
-        addMessageToChat(e.data, false);
+        const data = e.data;
+
+        // Проверяем, что это AI сообщение
+        if (data.startsWith('🤖 AI:') || data.startsWith('AI печатает...')) {
+            // AI сообщение
+            const isAI = data.startsWith('🤖 AI:');
+            addMessageToChat(data, false, null, true);
+        } else {
+            // Обычное сообщение
+            addMessageToChat(data, false);
+        }
     };
 
     ws.onerror = (err) => {
@@ -620,21 +622,24 @@ function connectWebSocket() {
     };
 }
 
-// История
 async function loadHistory() {
     try {
         const res = await fetch(`/history/${currentRoomId}?token=${token}`);
         const msgs = await res.json();
         messagesArea.innerHTML = '';
         for (let msg of msgs) {
-            addMessageToChat(msg.text, false, msg.username);
+            const text = msg.text;
+            if (text && text.startsWith('🤖 AI:')) {
+                addMessageToChat(text, false, null, true);
+            } else {
+                addMessageToChat(text, false, msg.username);
+            }
         }
     } catch(e) {
         console.error('History error:', e);
     }
 }
 
-// Регистрация
 document.getElementById('regBtn').onclick = async () => {
     try {
         await apiCall('/register', { username: usernameInput.value, password: passwordInput.value });
@@ -646,7 +651,6 @@ document.getElementById('regBtn').onclick = async () => {
     }
 };
 
-// Логин
 document.getElementById('loginBtn').onclick = async () => {
     try {
         const data = await apiCall('/login', { username: usernameInput.value, password: passwordInput.value });
@@ -660,13 +664,11 @@ document.getElementById('loginBtn').onclick = async () => {
     }
 };
 
-// Переключение комнаты
 document.getElementById('joinRoomBtn').onclick = () => {
     if (ws) ws.close();
     connectWebSocket();
 };
 
-// Выход
 document.getElementById('logoutBtn').onclick = () => {
     if (ws) ws.close();
     token = null;
@@ -675,7 +677,6 @@ document.getElementById('logoutBtn').onclick = () => {
     messagesArea.innerHTML = '<div style="text-align:center; color:#4a5f6b; padding:40px;">💬 Сообщения будут здесь</div>';
 };
 
-// Отправка текста
 document.getElementById('sendBtn').onclick = () => {
     const text = messageInput.value.trim();
     if (text && ws && ws.readyState === WebSocket.OPEN) {
@@ -685,26 +686,29 @@ document.getElementById('sendBtn').onclick = () => {
     }
 };
 
-// Голос
 document.getElementById('recordBtn').onclick = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
-    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-    mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append('file', blob, 'voice.webm');
-        const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
-        if (!res.ok) throw new Error('Upload failed');
-        const data = await res.json();
-        ws.send(JSON.stringify({ type: 'voice', url: data.url }));
-        stream.getTracks().forEach(t => t.stop());
-    };
-    mediaRecorder.start();
-    isRecording = true;
-    document.getElementById('recordBtn').style.display = 'none';
-    document.getElementById('stopBtn').style.display = 'inline-block';
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('file', blob, 'voice.webm');
+            const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
+            if (!res.ok) throw new Error('Upload failed');
+            const data = await res.json();
+            ws.send(JSON.stringify({ type: 'voice', url: data.url }));
+            stream.getTracks().forEach(t => t.stop());
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        document.getElementById('recordBtn').style.display = 'none';
+        document.getElementById('stopBtn').style.display = 'inline-block';
+    } catch(e) {
+        console.error('Microphone error:', e);
+    }
 };
 
 document.getElementById('stopBtn').onclick = () => {
@@ -716,14 +720,10 @@ document.getElementById('stopBtn').onclick = () => {
     }
 };
 
-// ============================================
-// ⭐️ НОВОЕ: КНОПКА AI (GigaChat)
-// ============================================
 document.getElementById('aiBtn').onclick = async () => {
     const question = messageInput.value.trim();
     if (!question) return;
 
-    // Показываем вопрос в чате
     addMessageToChat(question, true);
     messageInput.value = '';
 
@@ -733,15 +733,16 @@ document.getElementById('aiBtn').onclick = async () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: question, room_id: currentRoomId })
         });
-        if (!res.ok) throw new Error('AI ошибка');
-        // Ответ придёт через WebSocket автоматически
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || 'AI ошибка');
+        }
     } catch(e) {
         console.error(e);
-        addMessageToChat('❌ AI не ответил', false);
+        addMessageToChat('❌ AI не ответил', false, null, true);
     }
 };
 
-// Enter = отправка
 messageInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') document.getElementById('sendBtn').click();
 });
