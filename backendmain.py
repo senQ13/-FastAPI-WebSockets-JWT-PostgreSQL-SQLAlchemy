@@ -97,10 +97,12 @@ async def websocket_endpoint(websocket:WebSocket, room_id:int):
                 msg = Message(user_id=user_id, room_id =room_id, text=text)
                 session.add(msg)
                 await session.commit()
-                for i in active_collections[room_id]:
-                       if i != websocket:
-                           await i.send_text(text)
-
+                for client in active_collections[room_id]:
+                    if client != websocket:
+                        try:
+                            await client.send_text(text)
+                        except Exception as e:
+                            print(f"⚠️ Ошибка отправки клиенту: {e}")
     except WebSocketDisconnect:
         active_collections[room_id].remove(websocket)
 @app.post("/uploadaudio")
