@@ -234,6 +234,9 @@ async def get_ai(request: Request):
         print(f"🔌 Активные комнаты: {list(active_collections.keys())}")
         if not prompt:
             raise HTTPException(400 , "Нету запроса")
+        if room_id not in active_collections:
+            active_collections[room_id] = []
+            print(f"создана комната {room_id}")
         if room_id in active_collections:
             for i in active_collections[room_id]:
                 await i.send_text(f"🤖AI печатает...")
@@ -249,6 +252,8 @@ async def get_ai(request: Request):
     except Exception as e:
         print(f"AI ошибка: {e}")
         raise HTTPException(500, f"Ошибка AI: {str(e)}")
+
+
 @app.get("/")
 async def root():
     return HTMLResponse("""
@@ -531,6 +536,8 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let currentRoomId = "1";
+let reconnectAttempts = 0;
+const maxReconnectAttempts = 10;
 
 const authContainer = document.getElementById('authContainer');
 const chatContainer = document.getElementById('chatContainer');
@@ -594,33 +601,48 @@ function addMessageToChat(text, isMy = false, sender = null, isAI = false) {
 }
 
 function connectWebSocket() {
+    if (!token) {
+        console.log('⚠️ Нет токена, вход не выполнен');
+        return;
+    }
+
     currentRoomId = roomSelect.value;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/${currentRoomId}?token=${token}`;
+
+    console.log('🔄 Подключение к WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-        console.log('WebSocket connected to room', currentRoomId);
+        console.log('✅ WebSocket подключен к комнате', currentRoomId);
+        reconnectAttempts = 0;
         loadHistory();
     };
 
-    // ========== НОВЫЙ ОБРАБОТЧИК ==========
     ws.onmessage = (e) => {
         const data = e.data;
         console.log('📩 WebSocket получил:', data);
 
-        // Если сообщение содержит "AI" или "🤖", считаем его AI-сообщением
         if (data.includes('AI') || data.includes('🤖')) {
-            // Это AI (статус или ответ)
             addMessageToChat(data, false, null, true);
         } else {
-            // Обычное сообщение
             addMessageToChat(data, false);
         }
     };
 
     ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
+        console.error('❌ WebSocket ошибка:', err);
+    };
+
+    ws.onclose = () => {
+        console.log('⚠️ WebSocket закрыт');
+        if (reconnectAttempts < maxReconnectAttempts && token) {
+            reconnectAttempts++;
+            console.log(`🔄 Переподключение через 3 сек... (попытка ${reconnectAttempts}/${maxReconnectAttempts})`);
+            setTimeout(connectWebSocket, 3000);
+        } else {
+            console.log('❌ Превышено число попыток переподключения');
+        }
     };
 }
 
@@ -667,13 +689,20 @@ document.getElementById('loginBtn').onclick = async () => {
 };
 
 document.getElementById('joinRoomBtn').onclick = () => {
-    if (ws) ws.close();
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
     connectWebSocket();
 };
 
 document.getElementById('logoutBtn').onclick = () => {
-    if (ws) ws.close();
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
     token = null;
+    reconnectAttempts = 0;
     authContainer.classList.remove('hidden');
     chatContainer.classList.add('hidden');
     messagesArea.innerHTML = '<div style="text-align:center; color:#4a5f6b; padding:40px;">💬 Сообщения будут здесь</div>';
@@ -685,6 +714,8 @@ document.getElementById('sendBtn').onclick = () => {
         ws.send(JSON.stringify({ type: 'text', text: text }));
         addMessageToChat(text, true);
         messageInput.value = '';
+    } else {
+        console.log('⚠️ Не удалось отправить: WebSocket закрыт');
     }
 };
 
@@ -725,6 +756,19 @@ document.getElementById('stopBtn').onclick = () => {
 document.getElementById('aiBtn').onclick = async () => {
     const question = messageInput.value.trim();
     if (!question) return;
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.log('⚠️ WebSocket закрыт, переподключаюсь...');
+        connectWebSocket();
+        setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                document.getElementById('aiBtn').click();
+            } else {
+                addMessageToChat('❌ Нет соединения с сервером', false, null, true);
+            }
+        }, 1000);
+        return;
+    }
 
     addMessageToChat(question, true);
     messageInput.value = '';
