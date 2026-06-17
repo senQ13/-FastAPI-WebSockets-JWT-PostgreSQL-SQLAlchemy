@@ -203,7 +203,7 @@ async def get_giga_token():
             raise Exception(f"Ошибка {response.text}")
         data = response.json()
         giga_cache["access_token"] = data["access_token"]
-        giga_cache["created_at"] = datetime.utcnow() + timedelta(seconds=data.get("expires_at", 1800))
+        giga_cache["created_at"] = datetime.utcnow() + timedelta(seconds=1800)
         return giga_cache["access_token"]
 async def ask_giga(prompt : str) -> str:
     token = await get_giga_token()
