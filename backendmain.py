@@ -73,38 +73,61 @@ async def login(user_register: UserLogin):
         payload = {"sub" : str(row.id) , "exp": datetime.utcnow() + timedelta(hours=24)}
         token = jwt.encode(payload, secret_key, algorithm=ALGORITHM)
         return {"token" : token}
+
+
 @app.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket:WebSocket, room_id:int):
+async def websocket_endpoint(websocket: WebSocket, room_id: int):
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008)
         return
+
     try:
-        payload = jwt.decode(token , secret_key , algorithms=[ALGORITHM])
+        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except JWTError:
         await websocket.close(code=1008)
         return
+
     await websocket.accept()
+
     if room_id not in active_collections:
         active_collections[room_id] = []
     active_collections[room_id].append(websocket)
-    print(f"пользователь {user_id} подключился к комнате {room_id}")
+
+    print(f"✅ пользователь {user_id} подключился к комнате {room_id}")
+    print(f"📊 В комнате {room_id} теперь {len(active_collections[room_id])} клиентов")
+
     try:
         while True:
-            text = await websocket.receive_text()
-            async with AsyncSessionLocal() as session:
-                msg = Message(user_id=user_id, room_id =room_id, text=text)
-                session.add(msg)
-                await session.commit()
-                for client in active_collections[room_id]:
-                    if client != websocket:
-                        try:
-                            await client.send_text(text)
-                        except Exception as e:
-                            print(f"⚠️ Ошибка отправки клиенту: {e}")
-    except WebSocketDisconnect:
-        active_collections[room_id].remove(websocket)
+            try:
+                text = await websocket.receive_text()
+                print(f"📩 Получено сообщение от {user_id}: {text[:50]}...")
+
+                async with AsyncSessionLocal() as session:
+                    msg = Message(user_id=user_id, room_id=room_id, text=text)
+                    session.add(msg)
+                    await session.commit()
+
+                    # Рассылаем всем в комнате
+                    for client in active_collections[room_id]:
+                        if client != websocket:
+                            try:
+                                await client.send_text(text)
+                            except Exception as e:
+                                print(f"⚠️ Ошибка отправки клиенту: {e}")
+            except WebSocketDisconnect:
+                print(f"⚠️ WebSocket отключился (пользователь {user_id})")
+                break
+            except Exception as e:
+                print(f"❌ Ошибка в WebSocket: {e}")
+                break
+    finally:
+        # Удаляем WebSocket из комнаты при любом исходе
+        if room_id in active_collections and websocket in active_collections[room_id]:
+            active_collections[room_id].remove(websocket)
+            print(f"🗑️ WebSocket удалён из комнаты {room_id}")
+            print(f"📊 В комнате {room_id} осталось {len(active_collections[room_id])} клиентов")
 @app.post("/uploadaudio")
 async def uploadaudio(upload: UploadFile = File(...)):
     if upload.content_type not in ["audio/webm" , "audio/ogg"]:
