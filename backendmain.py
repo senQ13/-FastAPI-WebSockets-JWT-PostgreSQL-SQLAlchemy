@@ -239,8 +239,11 @@ async def get_ai(request: Request):
                 await i.send_text(f"🤖AI печатает...")
         answer = await ask_giga(prompt)
         if room_id in active_collections:
+            print(f"📤 Отправка AI в комнату {room_id}, количество клиентов: {len(active_collections[room_id])}")
             for ws in active_collections[room_id]:
                 await ws.send_text(f"🤖 AI: {answer}")
+        else:
+            print(f"⚠️ Комната {room_id} не найдена в active_collections")
 
         return{"answer" : answer}
     except Exception as e:
