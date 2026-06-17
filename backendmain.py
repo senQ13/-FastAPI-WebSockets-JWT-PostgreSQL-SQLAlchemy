@@ -236,11 +236,11 @@ async def get_ai(request: Request):
             raise HTTPException(400 , "Нету запроса")
         if room_id in active_collections:
             for i in active_collections[room_id]:
-                await i.send_text(f"AI печатает...")
+                await i.send_text(f"🤖AI печатает...")
         answer = await ask_giga(prompt)
         if room_id in active_collections:
             for ws in active_collections[room_id]:
-                await ws.send_text(f" AI: {answer}")
+                await ws.send_text(f"🤖 AI: {answer}")
 
         return{"answer" : answer}
     except Exception as e:
