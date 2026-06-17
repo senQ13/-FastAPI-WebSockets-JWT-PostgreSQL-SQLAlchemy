@@ -498,7 +498,7 @@ async def root():
 <body>
 
 <div id="authContainer" class="auth-container">
-    <h2>✧ Вход в чат</h2>
+    <h2> Вход в чат</h2>
     <input type="text" id="username" placeholder="Имя пользователя">
     <input type="password" id="password" placeholder="Пароль">
     <button id="regBtn">📝 Зарегистрироваться</button>
@@ -509,7 +509,7 @@ async def root():
 <div id="chatContainer" class="app hidden">
     <!-- ШАПКА -->
     <div class="header">
-        <h1>💬 Telegram Chat</h1>
+        <h1>Chat</h1>
         <div class="header-controls">
             <select id="roomSelect">
                 <option value="1">🏠 general</option>
