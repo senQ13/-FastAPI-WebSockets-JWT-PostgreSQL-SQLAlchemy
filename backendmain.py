@@ -230,6 +230,8 @@ async def get_ai(request: Request):
         body = await request.json()
         prompt = body.get("prompt")
         room_id = body.get("room_id" , 1)
+        print(f"Получен запрос: room_id={room_id} , prompt={prompt} ")
+        print(f"🔌 Активные комнаты: {list(active_collections.keys())}")
         if not prompt:
             raise HTTPException(400 , "Нету запроса")
         if room_id in active_collections:
