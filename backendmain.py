@@ -226,7 +226,7 @@ async def ask_giga(prompt : str) -> str:
             raise Exception(f"Ошибка гигачат {response.text}")
         data = response.json()
         return data["choices"][0]["message"]["content"]
-@app.get("/chat/ai")
+@app.post("/chat/ai")
 async def get_ai(request: Request):
     try:
         body = await request.json()
