@@ -191,14 +191,13 @@ async def get_giga_token():
     basic_auth = os.getenv("GIGA_BASIC_AUTH")
     if not basic_auth:
         raise Exception("Токен не задан в .env")
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify = False) as client:
         response = await client.post("https://ngw.devices.sberbank.ru:9443/api/v2/oauth" ,
                                      data = {"scope" : "GIGACHAT_API_PERS"},
                                      headers = {"Content-Type" : "application/x-www-form-urlencoded",
                                                 "Accept" : "application/json" ,
                                                 "RqUID" : str(uuid.uuid4()),
                                                 "Authorization" : f"Basic {basic_auth}"},
-                                     verify = False,
                                      )
         if response.status_code != 200:
             raise Exception(f"Ошибка {response.text}")
@@ -208,7 +207,7 @@ async def get_giga_token():
         return giga_cache["access_token"]
 async def ask_giga(prompt : str) -> str:
     token = await get_giga_token()
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify = False) as client:
         response = await client.post("https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
                                      headers = {"Authorization" : f"Bearer {token}",
                                                 "Content-Type" : "application/json"
@@ -220,7 +219,6 @@ async def ask_giga(prompt : str) -> str:
                                          "max_tokens" : 500
                                             },
                                      timeout = 30,
-                                     verify = False
                                      )
         if response.status_code != 200:
             raise Exception(f"Ошибка гигачат {response.text}")
