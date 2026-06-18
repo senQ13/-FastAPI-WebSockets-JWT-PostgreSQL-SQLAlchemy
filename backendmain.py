@@ -73,61 +73,36 @@ async def login(user_register: UserLogin):
         payload = {"sub" : str(row.id) , "exp": datetime.utcnow() + timedelta(hours=24)}
         token = jwt.encode(payload, secret_key, algorithm=ALGORITHM)
         return {"token" : token}
-
-
 @app.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: int):
+async def websocket_endpoint(websocket:WebSocket, room_id:int):
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008)
         return
-
     try:
-        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+        payload = jwt.decode(token , secret_key , algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except JWTError:
         await websocket.close(code=1008)
         return
-
     await websocket.accept()
-
     if room_id not in active_collections:
         active_collections[room_id] = []
     active_collections[room_id].append(websocket)
-
-    print(f"✅ пользователь {user_id} подключился к комнате {room_id}")
-    print(f"📊 В комнате {room_id} теперь {len(active_collections[room_id])} клиентов")
-
+    print(f"пользователь {user_id} подключился к комнате {room_id}")
     try:
         while True:
-            try:
-                text = await websocket.receive_text()
-                print(f"📩 Получено сообщение от {user_id}: {text[:50]}...")
+            text = await websocket.receive_text()
+            async with AsyncSessionLocal() as session:
+                msg = Message(user_id=user_id, room_id =room_id, text=text)
+                session.add(msg)
+                await session.commit()
+                for i in active_collections[room_id]:
+                       if i != websocket:
+                           await i.send_text(text)
 
-                async with AsyncSessionLocal() as session:
-                    msg = Message(user_id=user_id, room_id=room_id, text=text)
-                    session.add(msg)
-                    await session.commit()
-
-                    # Рассылаем всем в комнате
-                    for client in active_collections[room_id]:
-                        if client != websocket:
-                            try:
-                                await client.send_text(text)
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки клиенту: {e}")
-            except WebSocketDisconnect:
-                print(f"⚠️ WebSocket отключился (пользователь {user_id})")
-                break
-            except Exception as e:
-                print(f"❌ Ошибка в WebSocket: {e}")
-                break
-    finally:
-        # Удаляем WebSocket из комнаты при любом исходе
-        if room_id in active_collections and websocket in active_collections[room_id]:
-            active_collections[room_id].remove(websocket)
-            print(f"🗑️ WebSocket удалён из комнаты {room_id}")
-            print(f"📊 В комнате {room_id} осталось {len(active_collections[room_id])} клиентов")
+    except WebSocketDisconnect:
+        active_collections[room_id].remove(websocket)
 @app.post("/uploadaudio")
 async def uploadaudio(upload: UploadFile = File(...)):
     if upload.content_type not in ["audio/webm" , "audio/ogg"]:
@@ -216,23 +191,24 @@ async def get_giga_token():
     basic_auth = os.getenv("GIGA_BASIC_AUTH")
     if not basic_auth:
         raise Exception("Токен не задан в .env")
-    async with httpx.AsyncClient(verify = False) as client:
+    async with httpx.AsyncClient() as client:
         response = await client.post("https://ngw.devices.sberbank.ru:9443/api/v2/oauth" ,
                                      data = {"scope" : "GIGACHAT_API_PERS"},
                                      headers = {"Content-Type" : "application/x-www-form-urlencoded",
                                                 "Accept" : "application/json" ,
                                                 "RqUID" : str(uuid.uuid4()),
                                                 "Authorization" : f"Basic {basic_auth}"},
+                                     verify = False,
                                      )
         if response.status_code != 200:
             raise Exception(f"Ошибка {response.text}")
         data = response.json()
         giga_cache["access_token"] = data["access_token"]
-        giga_cache["created_at"] = datetime.utcnow() + timedelta(seconds=1800)
+        giga_cache["created_at"] = datetime.utcnow() + timedelta(seconds=data.get("expires_at", 1800))
         return giga_cache["access_token"]
 async def ask_giga(prompt : str) -> str:
     token = await get_giga_token()
-    async with httpx.AsyncClient(verify = False) as client:
+    async with httpx.AsyncClient() as client:
         response = await client.post("https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
                                      headers = {"Authorization" : f"Bearer {token}",
                                                 "Content-Type" : "application/json"
@@ -244,6 +220,7 @@ async def ask_giga(prompt : str) -> str:
                                          "max_tokens" : 500
                                             },
                                      timeout = 30,
+                                     verify = False
                                      )
         if response.status_code != 200:
             raise Exception(f"Ошибка гигачат {response.text}")
@@ -255,30 +232,13 @@ async def get_ai(request: Request):
         body = await request.json()
         prompt = body.get("prompt")
         room_id = body.get("room_id" , 1)
-        print(f"Получен запрос: room_id={room_id} , prompt={prompt} ")
-        print(f"🔌 Активные комнаты: {list(active_collections.keys())}")
         if not prompt:
             raise HTTPException(400 , "Нету запроса")
-        if room_id not in active_collections:
-            active_collections[room_id] = []
-            print(f"создана комната {room_id}")
-        if room_id in active_collections:
-            for i in active_collections[room_id]:
-                await i.send_text(f"🤖AI печатает...")
-        answer = await ask_giga(prompt)
-        if room_id in active_collections:
-            print(f"📤 Отправка AI в комнату {room_id}, количество клиентов: {len(active_collections[room_id])}")
-            for ws in active_collections[room_id]:
-                await ws.send_text(f"🤖 AI: {answer}")
-        else:
-            print(f"⚠️ Комната {room_id} не найдена в active_collections")
-
+        answer  = await ask_giga(prompt)
         return{"answer" : answer}
     except Exception as e:
         print(f"AI ошибка: {e}")
         raise HTTPException(500, f"Ошибка AI: {str(e)}")
-
-
 @app.get("/")
 async def root():
     return HTMLResponse("""
@@ -561,8 +521,6 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 let currentRoomId = "1";
-let reconnectAttempts = 0;
-const maxReconnectAttempts = 10;
 
 const authContainer = document.getElementById('authContainer');
 const chatContainer = document.getElementById('chatContainer');
@@ -626,48 +584,22 @@ function addMessageToChat(text, isMy = false, sender = null, isAI = false) {
 }
 
 function connectWebSocket() {
-    if (!token) {
-        console.log('⚠️ Нет токена, вход не выполнен');
-        return;
-    }
-
     currentRoomId = roomSelect.value;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/${currentRoomId}?token=${token}`;
-
-    console.log('🔄 Подключение к WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-        console.log('✅ WebSocket подключен к комнате', currentRoomId);
-        reconnectAttempts = 0;
+        console.log('WebSocket connected to room', currentRoomId);
         loadHistory();
     };
 
     ws.onmessage = (e) => {
-        const data = e.data;
-        console.log('📩 WebSocket получил:', data);
-
-        if (data.includes('AI') || data.includes('🤖')) {
-            addMessageToChat(data, false, null, true);
-        } else {
-            addMessageToChat(data, false);
-        }
+        addMessageToChat(e.data, false);
     };
 
     ws.onerror = (err) => {
-        console.error('❌ WebSocket ошибка:', err);
-    };
-
-    ws.onclose = () => {
-        console.log('⚠️ WebSocket закрыт');
-        if (reconnectAttempts < maxReconnectAttempts && token) {
-            reconnectAttempts++;
-            console.log(`🔄 Переподключение через 3 сек... (попытка ${reconnectAttempts}/${maxReconnectAttempts})`);
-            setTimeout(connectWebSocket, 3000);
-        } else {
-            console.log('❌ Превышено число попыток переподключения');
-        }
+        console.error('WebSocket error:', err);
     };
 }
 
@@ -677,12 +609,7 @@ async function loadHistory() {
         const msgs = await res.json();
         messagesArea.innerHTML = '';
         for (let msg of msgs) {
-            const text = msg.text;
-            if (text && (text.includes('AI') || text.includes('🤖'))) {
-                addMessageToChat(text, false, null, true);
-            } else {
-                addMessageToChat(text, false, msg.username);
-            }
+            addMessageToChat(msg.text, false, msg.username);
         }
     } catch(e) {
         console.error('History error:', e);
@@ -714,20 +641,13 @@ document.getElementById('loginBtn').onclick = async () => {
 };
 
 document.getElementById('joinRoomBtn').onclick = () => {
-    if (ws) {
-        ws.close();
-        ws = null;
-    }
+    if (ws) ws.close();
     connectWebSocket();
 };
 
 document.getElementById('logoutBtn').onclick = () => {
-    if (ws) {
-        ws.close();
-        ws = null;
-    }
+    if (ws) ws.close();
     token = null;
-    reconnectAttempts = 0;
     authContainer.classList.remove('hidden');
     chatContainer.classList.add('hidden');
     messagesArea.innerHTML = '<div style="text-align:center; color:#4a5f6b; padding:40px;">💬 Сообщения будут здесь</div>';
@@ -739,34 +659,28 @@ document.getElementById('sendBtn').onclick = () => {
         ws.send(JSON.stringify({ type: 'text', text: text }));
         addMessageToChat(text, true);
         messageInput.value = '';
-    } else {
-        console.log('⚠️ Не удалось отправить: WebSocket закрыт');
     }
 };
 
 document.getElementById('recordBtn').onclick = async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(audioChunks, { type: 'audio/webm' });
-            const formData = new FormData();
-            formData.append('file', blob, 'voice.webm');
-            const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
-            if (!res.ok) throw new Error('Upload failed');
-            const data = await res.json();
-            ws.send(JSON.stringify({ type: 'voice', url: data.url }));
-            stream.getTracks().forEach(t => t.stop());
-        };
-        mediaRecorder.start();
-        isRecording = true;
-        document.getElementById('recordBtn').style.display = 'none';
-        document.getElementById('stopBtn').style.display = 'inline-block';
-    } catch(e) {
-        console.error('Microphone error:', e);
-    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', blob, 'voice.webm');
+        const res = await fetch('/uploadaudio', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        ws.send(JSON.stringify({ type: 'voice', url: data.url }));
+        stream.getTracks().forEach(t => t.stop());
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    document.getElementById('recordBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display = 'inline-block';
 };
 
 document.getElementById('stopBtn').onclick = () => {
@@ -778,22 +692,12 @@ document.getElementById('stopBtn').onclick = () => {
     }
 };
 
+// ============================================
+// ⭐️ ИСПРАВЛЕННАЯ КНОПКА AI
+// ============================================
 document.getElementById('aiBtn').onclick = async () => {
     const question = messageInput.value.trim();
     if (!question) return;
-
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.log('⚠️ WebSocket закрыт, переподключаюсь...');
-        connectWebSocket();
-        setTimeout(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                document.getElementById('aiBtn').click();
-            } else {
-                addMessageToChat('❌ Нет соединения с сервером', false, null, true);
-            }
-        }, 1000);
-        return;
-    }
 
     addMessageToChat(question, true);
     messageInput.value = '';
@@ -807,6 +711,12 @@ document.getElementById('aiBtn').onclick = async () => {
         if (!res.ok) {
             const error = await res.json();
             throw new Error(error.detail || 'AI ошибка');
+        }
+        const data = await res.json();
+        if (data.answer) {
+            addMessageToChat(`🤖 AI: ${data.answer}`, false, null, true);
+        } else {
+            addMessageToChat('❌ AI не ответил', false, null, true);
         }
     } catch(e) {
         console.error(e);
