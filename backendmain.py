@@ -104,14 +104,14 @@ async def websocket_endpoint(websocket:WebSocket, room_id:int):
     except WebSocketDisconnect:
         active_collections[room_id].remove(websocket)
 @app.post("/uploadaudio")
-async def uploadaudio(upload: UploadFile = File(...)):
-    if upload.content_type not in ["audio/webm" , "audio/ogg"]:
+async def uploadaudio(file: UploadFile = File(...)):
+    if file.content_type not in ["audio/webm" , "audio/ogg"]:
         raise HTTPException(status_code=400, detail="Не верный формат файла")
-    ext = upload.filename.split(".")[-1] if "." in upload.filename else "webm"
+    ext = file.filename.split(".")[-1] if "." in file.filename else "webm"
     filename = f"{uuid.uuid4()}.{ext}"
     filepath = f"uploads/{filename}"
     with open(filepath, "wb") as f:
-        shutil.copyfileobj(upload.file, f)
+        shutil.copyfileobj(file.file, f)
 
     return{"url" : f"/uploads/{filename}"}
 @app.get("/history/{room_id}")
