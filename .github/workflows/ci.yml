@@ -12,5 +12,5 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install requirements
+      - run: pip install -r requirements
       - run: pytest -v
