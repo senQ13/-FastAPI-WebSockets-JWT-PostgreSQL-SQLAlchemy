@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import UploadFile , File
 import uuid
 import shutil
+import json
+import redis
 os.makedirs("uploads", exist_ok=True)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
@@ -25,7 +27,8 @@ if not secret_key:
     raise ValueError("SECRET_KEY не задан в .env")
 ALGORITHM = "HS256"
 active_collections = {}
-
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.Redis(host="localhost" , port=6379, db=0 , decode_responses=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -86,7 +89,7 @@ async def websocket_endpoint(websocket:WebSocket, room_id:int):
         await websocket.close(code=1008)
         return
     await websocket.accept()
-    if room_id not in active_collections:
+    if room_id not in active_collections: 
         active_collections[room_id] = []
     active_collections[room_id].append(websocket)
     print(f"пользователь {user_id} подключился к комнате {room_id}")
@@ -122,15 +125,24 @@ async def get_history(room_id:int , token : str):
         jwt.decode(token, secret_key, algorithms=[ALGORITHM])
     except JWTError:
         raise HTTPException(status_code=401, detail="Ошибка токена")
+    cached = f"history:{room_id}"
+    cached_data = redis_client.get(cached)
+    if cached_data:
+        print(f"✅История из кэша комнаты {room_id}")
+        return json.loads(cached_data)
     async with AsyncSessionLocal() as session:
-        stmt = (select(User.username , Message.text , Message.created_at)
-                .join(User, User.id == Message.user_id)
-                .where(Message.room_id == room_id)
-                .order_by(Message.created_at)
-                .limit(50))
+        stmt = (select(User.username, Message.text, Message.created_at)
+                    .join(User, User.id == Message.user_id)
+                    .where(Message.room_id == room_id)
+                    .order_by(Message.created_at)
+                    .limit(50))
         res = await session.execute(stmt)
         row = res.all()
-        return [{"username": r[0], "text": r[1], "created_at": r[2]} for r in row[::-1]]
+        result =  [{"username": r[0], "text": r[1], "created_at": r[2]} for r in row[::-1]]
+
+        redis_client.setex(cached, 30 , json.dumps(result))
+        print(f"История сохраннена в кеш для комнаты {room_id}")
+        return result
 @app.get("/webhook_info")
 async def webhook_info():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
