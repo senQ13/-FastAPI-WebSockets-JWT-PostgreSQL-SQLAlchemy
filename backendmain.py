@@ -135,7 +135,7 @@ async def get_history(room_id:int , token : str):
                     .join(User, User.id == Message.user_id)
                     .where(Message.room_id == room_id)
                     .order_by(Message.created_at)
-                    .limit(50))
+                    .limit(80))
         res = await session.execute(stmt)
         row = res.all()
         result =  [{"username": r[0], "text": r[1], "created_at": r[2].isoformat()} for r in row[::-1]]
