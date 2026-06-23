@@ -28,7 +28,7 @@ if not secret_key:
 ALGORITHM = "HS256"
 active_collections = {}
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.Redis(host="localhost" , port=6379, db=0 , decode_responses=True)
+redis_client = redis.Redis(REDIS_URL ,  decode_responses=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -491,11 +491,11 @@ async def root():
 <body>
 
 <div id="authContainer" class="auth-container">
-    <h2>✧ Вход в чат</h2>
+    <h2>Chat</h2>
     <input type="text" id="username" placeholder="Имя пользователя">
     <input type="password" id="password" placeholder="Пароль">
-    <button id="regBtn">📝 Зарегистрироваться</button>
-    <button id="loginBtn">🔑 Войти</button>
+    <button id="regBtn"> Зарегистрироваться</button>
+    <button id="loginBtn"> Войти</button>
     <div id="authError" class="error"></div>
 </div>
 
@@ -504,7 +504,7 @@ async def root():
         <h1>💬 Chat</h1>
         <div class="header-controls">
             <select id="roomSelect">
-                <option value="1">🏠 general</option>
+                <option value="1">🌐 general</option>
                 <option value="2">🎲 random</option>
                 <option value="3">💻 tech</option>
             </select>
@@ -517,7 +517,7 @@ async def root():
     </div>
     <div class="input-panel">
         <input type="text" id="messageInput" placeholder="Сообщение..." autocomplete="off">
-        <button id="sendBtn">📤</button>
+        <button id="sendBtn">💬</button>
         <button id="recordBtn" class="record">🎤</button>
         <button id="stopBtn" class="record" style="display:none;">⏹</button>
         <button id="aiBtn" class="ai-btn">🤖 AI</button>
