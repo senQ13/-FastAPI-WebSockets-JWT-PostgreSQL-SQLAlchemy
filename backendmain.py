@@ -138,7 +138,7 @@ async def get_history(room_id:int , token : str):
                     .limit(50))
         res = await session.execute(stmt)
         row = res.all()
-        result =  [{"username": r[0], "text": r[1], "created_at": r[2]} for r in row[::-1]]
+        result =  [{"username": r[0], "text": r[1], "created_at": r[2].isoformat()} for r in row[::-1]]
 
         redis_client.setex(cached, 30 , json.dumps(result))
         print(f"История сохраннена в кеш для комнаты {room_id}")
