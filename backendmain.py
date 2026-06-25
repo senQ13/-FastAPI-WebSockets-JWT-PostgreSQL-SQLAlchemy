@@ -106,7 +106,7 @@ async def websocket_endpoint(websocket:WebSocket, room_id:int):
 
     except WebSocketDisconnect:
         active_collections[room_id].remove(websocket)
-@app.post("/uploadaudio")
+@app.post("/uploadaudio") # отправка аудио
 async def uploadaudio(file: UploadFile = File(...)):
     if file.content_type not in ["audio/webm" , "audio/ogg"]:
         raise HTTPException(status_code=400, detail="Не верный формат файла")
@@ -117,7 +117,7 @@ async def uploadaudio(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, f)
 
     return{"url" : f"/uploads/{filename}"}
-@app.get("/history/{room_id}")
+@app.get("/history/{room_id}") # эндопинт с историей
 async def get_history(room_id:int , token : str):
     if not token:
         raise HTTPException(status_code=401 , detail = "Ошибка токена")
@@ -125,11 +125,11 @@ async def get_history(room_id:int , token : str):
         jwt.decode(token, secret_key, algorithms=[ALGORITHM])
     except JWTError:
         raise HTTPException(status_code=401, detail="Ошибка токена")
-    cached = f"history:{room_id}"
-    cached_data = redis_client.get(cached)
-    if cached_data:
-        print(f"✅История из кэша комнаты {room_id}")
-        return json.loads(cached_data)
+    cache = f"history:{room_id}"
+    cache_data = redis_client.get(cache)
+    if cache_data:
+        return json.loads(cache_data)
+    print("История сообщений")
     async with AsyncSessionLocal() as session:
         stmt = (select(User.username, Message.text, Message.created_at)
                     .join(User, User.id == Message.user_id)
@@ -139,10 +139,12 @@ async def get_history(room_id:int , token : str):
         res = await session.execute(stmt)
         row = res.all()
         result =  [{"username": r[0], "text": r[1], "created_at": r[2].isoformat()} for r in row[::-1]]
-
-        redis_client.setex(cached, 30 , json.dumps(result))
-        print(f"История сохраннена в кеш для комнаты {room_id}")
+        redis_client.setex(cache, 60 , json.dumps(result))
         return result
+
+
+
+
 @app.get("/webhook_info")
 async def webhook_info():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
